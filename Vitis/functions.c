@@ -111,7 +111,7 @@ void ele_multiply(struct matrix *A, struct matrix *B, struct matrix *C, uint8_t 
 			if (run_float)
 				C->data_f[A->N * i + j] = A->data_f[A->N * i + j] * B->data_f[A->N * i + j];
 			else
-				C->data8[A->N * i + j] = quantize(C->s, C->zp, A->s * B->s * (((int)A->data8[A->N * i + j] - (int)A->zp) * ((int)B->data8[A->N * i + j] - (int)B->zp)));
+				C->data8[A->N * i + j] = quantize(C->s, C->zp, dequantize(A->s, A->zp, A->data8[A->N * i + j]) * dequantize(B->s, B->zp, B->data8[A->N * i + j]));
 }
 
 void resize_bias(struct matrix *bias, uint32_t batch_sz, uint8_t run_float) {
@@ -239,4 +239,50 @@ void quantize_matrix(struct matrix *A) {
 	for (i = 0; i < A->M; ++i)
 		for (j = 0; j < A->N; ++j)
 			A->data8[A->N * i + j] = quantize(A->s, A->zp, A->data_f[A->N * i + j]);
+}
+
+uint32_t count_lines(FILE *file_ptr) {
+	int c = '\0', pc = '\n';
+	uint32_t lines = 0;
+
+	while ((c = fgetc(file_ptr)) != EOF)
+	{
+		if (c == '\n' && pc != '\n')
+			++lines;
+
+		pc = c;
+	}
+
+	if (pc != '\n')
+		++lines;
+
+	return lines;
+}
+
+void generate_random(uint32_t count, uint32_t max, uint32_t min, uint32_t *list) {
+	int i, j;
+	uint8_t reroll;
+
+	for (i = 0; i < count; ++i)
+		while (1) {
+			reroll = 0;
+			list[i] = min + rand() % (max - min + 1);
+
+			for (j = 0; j < i; ++j)
+				if (list[j] == list[i])
+					reroll = 1;
+
+			if (!reroll)
+				break;
+		}
+}
+
+uint8_t in_list(uint32_t value, uint32_t count, uint32_t *list) {
+	int i;
+
+	for (i = 0; i < count; ++i)
+		if (value == list[i])
+			return 1;
+
+	return 0;
 }

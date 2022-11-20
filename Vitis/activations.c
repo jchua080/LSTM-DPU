@@ -52,10 +52,11 @@ void _tanh(struct matrix *A, struct matrix *B, uint8_t run_float) {
 				B->data8[A->N * i + j] = A->tanh_lut[A->data8[A->N * i + j]];
 }
 
-void fill_luts(struct matrix *A) {
+void fill_luts(struct matrix *A, struct matrix *B) {
 	int i;
 
 	update_params(A);
+	update_params(B);
 
 	if (!A->alloc_lut) {
 		A->alloc_lut = 1;
@@ -65,9 +66,9 @@ void fill_luts(struct matrix *A) {
 	}
 
 	for (i = 0; i < 256; ++i) {
-		A->relu_lut[i] = quantize(A->s, A->zp, relu_f(dequantize(A->s, A->zp, i)));
-		A->sigmoid_lut[i] = quantize(A->s, A->zp, sigmoid_f(dequantize(A->s, A->zp, i)));
-		A->tanh_lut[i] = quantize(A->s, A->zp, 2 * sigmoid_f(2 * dequantize(A->s, A->zp, i)) - 1);
+		A->relu_lut[i] = quantize(B->s, B->zp, relu_f(dequantize(A->s, A->zp, i)));
+		A->sigmoid_lut[i] = quantize(B->s, B->zp, sigmoid_f(dequantize(A->s, A->zp, i)));
+		A->tanh_lut[i] = quantize(B->s, B->zp, 2 * sigmoid_f(2 * dequantize(A->s, A->zp, i)) - 1);
 	}
 }
 

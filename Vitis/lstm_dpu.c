@@ -50,17 +50,32 @@ int main(int argc, char *argv[]) {
 
 	if (!error && access(model_path, F_OK)) {
 		printf("%s does not exist.\n", model_path);
-		fprintf(output_ptr, "%s does not exist.\n", model_path);
+		fprintf(output_ptr, "%s does not exist\n", model_path);
 		error = 1;
 	}
 	else if (!error && access(data_path, F_OK)) {
 		printf("%s does not exist.\n", data_path);
-		fprintf(output_ptr, "%s does not exist.\n", data_path);
+		fprintf(output_ptr, "%s does not exist\n", data_path);
 		error = 1;
 	}
 	else if (!error && access(label_path, F_OK)) {
 		printf("%s does not exist.\n", label_path);
-		fprintf(output_ptr, "%s does not exist.\n", label_path);
+		fprintf(output_ptr, "%s does not exist\n", label_path);
+		error = 1;
+	}
+	else if (!error && !batch_sz) {
+		printf("Batch size cannot be zero\n");
+		fprintf(output_ptr, "Batch size cannot be zero\n");
+		error = 1;
+	}
+	else if (!error && quantize > 1) {
+		printf("Quantize flag cannot be %d\n", quantize);
+		fprintf(output_ptr, "Quantize flag cannot be %d\n", quantize);
+		error = 1;
+	}
+	else if (!error && quantize == 1 && !representative) {
+		printf("Representative cannot be zero\n");
+		fprintf(output_ptr, "Representative cannot be zero\n");
 		error = 1;
 	}
 
@@ -82,6 +97,7 @@ int main(int argc, char *argv[]) {
 
 			printf("\n");
 			fprintf(output_ptr, "\n");
+			fflush(output_ptr);
 
 			evaluate(output_ptr, dpu, &model, data_path, label_path, batch_sz, quantize, representative, run_ps);
 		}

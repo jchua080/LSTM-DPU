@@ -14,7 +14,7 @@ void sigmoid(struct matrix *A, struct matrix *B, uint8_t run_float);
 
 void _tanh(struct matrix *A, struct matrix *B, uint8_t run_float);
 
-void fill_luts(struct matrix *A);
+void fill_luts(struct matrix *A, struct matrix *B);
 void activate(char *activation, struct matrix *A, struct matrix *B, uint8_t run_float);
 
 #endif

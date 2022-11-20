@@ -32,4 +32,8 @@ uint8_t clip(int value);
 uint8_t quantize(float s, float zp, float value);
 void quantize_matrix(struct matrix *A);
 
+uint32_t count_lines(FILE *file_ptr);
+void generate_random(uint32_t count, uint32_t max, uint32_t min, uint32_t *list);
+uint8_t in_list(uint32_t value, uint32_t count, uint32_t *list);
+
 #endif

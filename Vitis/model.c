@@ -354,6 +354,7 @@ void load_model(FILE *output_ptr, char *path, struct model *model, uint8_t *not)
 		printf("---------------------------------------------------------------------\n\n");
 		fprintf(output_ptr, "%s (Dense) --- Output: (None, %d)\n", model->denses[model->num_dense - 1].name, model->denses[model->num_dense - 1].kernel.N);
 		fprintf(output_ptr, "---------------------------------------------------------------------\n\n");
+		fflush(output_ptr);
 
 		FREE(line);
 		fclose(model_ptr);
@@ -424,15 +425,13 @@ void evaluate(FILE *output_ptr, uint32_t *dpu, struct model *model, char *data_p
 	double batch_time, time;
 	struct timespec batch_start, start, end;
 
-	int i, j, k;
+	int i, j, k, l;
 	uint8_t first_run, create_outputs = 1;
-	uint32_t *label, *predicted, correct = 0, total;
+	uint32_t *label, *predicted, *indices, num_line, correct = 0, total;
 
 	struct matrix32 data, temp;
 
-	for (i = 0; i < (quantize ? 2 : 1); ++i) {
-		first_run = 1;
-
+	for (i = 0; i < (quantize ? 2 : 1); ++i)
 		if ((data_ptr = fopen(data_path, "r")) != NULL && (label_ptr = fopen(label_path, "r")) != NULL) {
 			if (!i) {
 				printf("Loading %s and %s\n\n", data_path, label_path);
@@ -448,10 +447,13 @@ void evaluate(FILE *output_ptr, uint32_t *dpu, struct model *model, char *data_p
 				fprintf(output_ptr, "Performing evaluation\n");
 			}
 
+			fflush(output_ptr);
+
 			clock_gettime(CLOCK_REALTIME, &batch_start);
 			clock_gettime(CLOCK_REALTIME, &start);
 
-			j = total = 0;
+			first_run = 1;
+			j = l = total = 0;
 
 			data.M = batch_sz;
 			data.N = model->input_dim;
@@ -461,8 +463,19 @@ void evaluate(FILE *output_ptr, uint32_t *dpu, struct model *model, char *data_p
 				label = (uint32_t*)malloc(batch_sz * sizeof(uint32_t));
 				predicted = (uint32_t*)malloc(batch_sz * sizeof(uint32_t));
 			}
+			else {
+				indices = (uint32_t*)malloc(representative * sizeof(uint32_t));
+				num_line = count_lines(label_ptr);
+				generate_random(representative, num_line, 1, indices);
+				rewind(label_ptr);
+			}
 
 			while ((data_read = getline(&data_line, &data_length, data_ptr)) != -1 && (label_read = getline(&label_line, &label_length, label_ptr)) != -1) {
+				++l;
+
+				if (i != quantize && !in_list(l, representative, indices))
+					continue;
+
 				++total;
 
 				if (i == quantize)
@@ -487,13 +500,15 @@ void evaluate(FILE *output_ptr, uint32_t *dpu, struct model *model, char *data_p
 
 					if (i == quantize) {
 						label_predicted(model, label, predicted, &correct, !i);
-						printf("Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%%\n", batch_time, total, (double)total / time, 100.0 * correct / total);
-						fprintf(output_ptr, "Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%%\n", batch_time, total, (double)total / time, 100.0 * correct / total);
+						printf("Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%% --- Time left: %g s\n", batch_time, total, (double)total / time, 100.0 * correct / total, total == num_line ? 0.0 : batch_time * (num_line - total) / batch_sz);
+						fprintf(output_ptr, "Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%% --- Time left: %g s\n", batch_time, total, (double)total / time, 100.0 * correct / total, total == num_line ? 0.0 : batch_time * (num_line - total) / batch_sz);
 					}
 					else {
 						printf("Representative done: %d/%d --- Time left: %g s\n", total, representative, total == representative ? 0.0 : batch_time * (representative - total) / batch_sz);
 						fprintf(output_ptr, "Representative done: %d/%d --- Time left: %g s\n", total, representative, total == representative ? 0.0 : batch_time * (representative - total) / batch_sz);
 					}
+
+					fflush(output_ptr);
 
 					j = create_outputs = first_run = 0;
 				}
@@ -520,12 +535,12 @@ void evaluate(FILE *output_ptr, uint32_t *dpu, struct model *model, char *data_p
 
 				if (i == quantize) {
 					label_predicted(model, label, predicted, &correct, !i);
-					printf("Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%%\n", batch_time, total, (double)total / time, 100.0 * correct / total);
-					fprintf(output_ptr, "Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%%\n", batch_time, total, (double)total / time, 100.0 * correct / total);
+					printf("Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%% --- Time left: 0 s\n", batch_time, total, (double)total / time, 100.0 * correct / total);
+					fprintf(output_ptr, "Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%%\n --- Time left: 0 s", batch_time, total, (double)total / time, 100.0 * correct / total);
 				}
 				else {
-					printf("Representative done: %d/%d --- Time left: %d s\n", total, representative, 0);
-					fprintf(output_ptr, "Representative done: %d/%d --- Time left: %d s\n", total, representative, 0);
+					printf("Representative done: %d/%d --- Time left: 0 s\n", total, representative);
+					fprintf(output_ptr, "Representative done: %d/%d --- Time left: 0 s\n", total, representative);
 				}
 
 				free_output_data(model);
@@ -540,14 +555,16 @@ void evaluate(FILE *output_ptr, uint32_t *dpu, struct model *model, char *data_p
 			if (i == quantize) {
 				printf("Total time: %g s --- Performance: %g inferences/s --- Accuracy: %g%%\n\n", time, (double)total / time, 100.0 * correct / total);
 				fprintf(output_ptr, "Total time: %g s --- Performance: %g inferences/s --- Accuracy: %g%%\n\n", time, (double)total / time, 100.0 * correct / total);
-			}
-			else
-				quantize_model(model);
 
-			if (i == quantize) {
 				FREE(label);
 				FREE(predicted);
 			}
+			else {
+				FREE(indices);
+				quantize_model(model);
+			}
+
+			fflush(output_ptr);
 
 			FREE(data.data);
 			FREE(data_line);
@@ -556,7 +573,6 @@ void evaluate(FILE *output_ptr, uint32_t *dpu, struct model *model, char *data_p
 			fclose(data_ptr);
 			fclose(label_ptr);
 		}
-	}
 }
 
 void label_predicted(struct model *model, uint32_t *label, uint32_t *predicted, uint32_t *correct, uint8_t run_float) {
@@ -596,7 +612,7 @@ void label_predicted(struct model *model, uint32_t *label, uint32_t *predicted, 
 	}
 }
 
-void execute_model(uint32_t *dpu, struct model *model, struct matrix32 *input, uint8_t create_outputs, uint8_t first_run, uint8_t run_float, uint8_t run_ps, uint8_t fill_lut) {
+void execute_model(uint32_t *dpu, struct model *model, struct matrix32 *input, uint8_t create_outputs, uint8_t first_run, uint8_t run_float, uint8_t run_ps, uint8_t update_params) {
 	int i, j, k, start_input = 0, end_input = 0, start_output = 0, end_output = 0;
 
 	for (i = 0; i < model->num_name; ++i) {
@@ -612,7 +628,7 @@ void execute_model(uint32_t *dpu, struct model *model, struct matrix32 *input, u
 			start_output = end_output = input->N;
 
 			for (j = start_input; j <= end_input; ++j)
-				run_embedding(model, input, j, first_run, run_float);
+				run_embedding(model, input, j, create_outputs, first_run, run_float);
 		}
 		else if (strstr(model->names[i], "lstm")) {
 			for (j = 0; j < model->num_lstm; ++j)
@@ -643,7 +659,7 @@ void execute_model(uint32_t *dpu, struct model *model, struct matrix32 *input, u
 			end_input = end_output + 21 * input->N + 1;
 			start_output = end_output = model->lstms[j].end_output + 1;
 
-			run_lstm(dpu, model, j, first_run, run_float, run_ps, fill_lut);
+			run_lstm(dpu, model, j, create_outputs, first_run, run_float, run_ps, update_params);
 		}
 		else if (strstr(model->names[i], "dense")) {
 			for (j = 0; j < model->num_dense; ++j)
@@ -671,15 +687,15 @@ void execute_model(uint32_t *dpu, struct model *model, struct matrix32 *input, u
 			start_input = end_input = start_output + 1;
 			start_output = end_output = model->denses[j].end_output + 1;
 
-			run_dense(dpu, model, j, first_run, run_float, run_ps, fill_lut);
+			run_dense(dpu, model, j, create_outputs, first_run, run_float, run_ps, update_params);
 		}
 	}
 
-	if (fill_lut)
+	if (update_params)
 		update_model_params(model);
 }
 
-void run_embedding(struct model *model, struct matrix32 *input, uint32_t input_index, uint8_t first_run, uint8_t run_float) {
+void run_embedding(struct model *model, struct matrix32 *input, uint32_t input_index, uint8_t create_outputs, uint8_t first_run, uint8_t run_float) {
 	int i, j, N;
 	uint32_t data;
 
@@ -688,7 +704,10 @@ void run_embedding(struct model *model, struct matrix32 *input, uint32_t input_i
 		model->outputs[input_index].N = model->embedding.embeddings.N;
 		model->outputs[input_index].data_f = (float*)malloc(input->M * model->outputs[input_index].N * sizeof(float));
 		model->outputs[input_index].data8 = (uint8_t*)malloc(input->M * model->outputs[input_index].N * sizeof(uint8_t));
-		model->outputs[input_index].alloc_lut = model->outputs[input_index].alloc_row = model->outputs[input_index].update_param = 0;
+		model->outputs[input_index].alloc_row = 0;
+
+		if (create_outputs)
+			model->outputs[input_index].alloc_lut = model->outputs[input_index].update_param = 0;
 	}
 
 	N = model->outputs[input_index].N;
@@ -704,7 +723,7 @@ void run_embedding(struct model *model, struct matrix32 *input, uint32_t input_i
 	}
 }
 
-void run_lstm(uint32_t *dpu, struct model *model, uint32_t lstm_index, uint8_t first_run, uint8_t run_float, uint8_t run_ps, uint8_t fill_lut) {
+void run_lstm(uint32_t *dpu, struct model *model, uint32_t lstm_index, uint8_t create_outputs, uint8_t first_run, uint8_t run_float, uint8_t run_ps, uint8_t update_params) {
 	int i, j, k, M, N;
 	struct lstm *lstm = &model->lstms[lstm_index];
 
@@ -747,7 +766,10 @@ void run_lstm(uint32_t *dpu, struct model *model, uint32_t lstm_index, uint8_t f
 			model->outputs[i].N = lstm->rec_kernel[0].N;
 			model->outputs[i].data_f = (float*)malloc(model->outputs[i].M * model->outputs[i].N * sizeof(float));
 			model->outputs[i].data8 = (uint8_t*)malloc(model->outputs[i].M * model->outputs[i].N * sizeof(uint8_t));
-			model->outputs[i].alloc_lut = model->outputs[i].alloc_row = model->outputs[i].update_param = 0;
+			model->outputs[i].alloc_row = 0;
+
+			if (create_outputs)
+				model->outputs[i].alloc_lut = model->outputs[i].update_param = 0;
 		}
 
 	M = model->outputs[x[0]].M;
@@ -769,25 +791,26 @@ void run_lstm(uint32_t *dpu, struct model *model, uint32_t lstm_index, uint8_t f
 			if (lstm->use_bias)
 				add_matrix(&model->outputs[x_h[k] + j], &lstm->bias[k], &model->outputs[x_h_b[k] + j], run_float);
 
-			if (fill_lut)
-				fill_luts(&model->outputs[(lstm->use_bias ? x_h_b[k] : x_h[k]) + j]);
-
 			activate(k == 2 ? lstm->activation : lstm->rec_activation, &model->outputs[(lstm->use_bias ? x_h_b[k] : x_h[k]) + j], &model->outputs[a[k] + j], run_float);
+
+			if (update_params)
+				fill_luts(&model->outputs[(lstm->use_bias ? x_h_b[k] : x_h[k]) + j], &model->outputs[a[k] + j]);
 		}
 
 		ele_multiply(&model->outputs[a[1] + j], &model->outputs[c + j], &model->outputs[fc + j], run_float);
 		ele_multiply(&model->outputs[a[0] + j], &model->outputs[a[2] + j], &model->outputs[ic + j], run_float);
 		add_matrix(&model->outputs[fc + j], &model->outputs[ic + j], &model->outputs[c + j + 1], run_float);
 
-		if (fill_lut)
-			fill_luts(&model->outputs[c + j + 1]);
-
 		activate(lstm->activation, &model->outputs[c + j + 1], &model->outputs[a[4] + j], run_float);
+
+		if (update_params)
+			fill_luts(&model->outputs[c + j + 1], &model->outputs[a[4] + j]);
+
 		ele_multiply(&model->outputs[a[3] + j], &model->outputs[a[4] + j], &model->outputs[h + j + 1], run_float);
 	}
 }
 
-void run_dense(uint32_t *dpu, struct model *model, uint32_t dense_index, uint8_t first_run, uint8_t run_float, uint8_t run_ps, uint8_t fill_lut) {
+void run_dense(uint32_t *dpu, struct model *model, uint32_t dense_index, uint8_t create_outputs, uint8_t first_run, uint8_t run_float, uint8_t run_ps, uint8_t update_params) {
 	int i;
 	struct dense *dense = &model->denses[dense_index];
 
@@ -797,7 +820,10 @@ void run_dense(uint32_t *dpu, struct model *model, uint32_t dense_index, uint8_t
 			model->outputs[i].N = dense->kernel.N;
 			model->outputs[i].data_f = (float*)malloc(model->outputs[i].M * dense->kernel.N * sizeof(float));
 			model->outputs[i].data8 = (uint8_t*)malloc(model->outputs[i].M * dense->kernel.N * sizeof(uint8_t));
-			model->outputs[i].alloc_lut = model->outputs[i].alloc_row = model->outputs[i].update_param = 0;
+			model->outputs[i].alloc_row = 0;
+
+			if (create_outputs)
+				model->outputs[i].alloc_lut = model->outputs[i].update_param = 0;
 		}
 
 	multiply_matrix(dpu, &model->outputs[dense->input_index], &dense->kernel, &model->outputs[dense->start_output], run_float, run_ps);
@@ -805,10 +831,10 @@ void run_dense(uint32_t *dpu, struct model *model, uint32_t dense_index, uint8_t
 	if (dense->use_bias)
 		add_matrix(&model->outputs[dense->start_output], &dense->bias, &model->outputs[dense->end_output], run_float);
 
-	if (fill_lut)
-		fill_luts(&model->outputs[dense->use_bias ? dense->end_output : dense->start_output]);
-
 	activate(dense->activation, &model->outputs[dense->use_bias ? dense->end_output : dense->start_output], &model->outputs[dense->start_output + 1], run_float);
+
+	if (update_params)
+		fill_luts(&model->outputs[dense->use_bias ? dense->end_output : dense->start_output], &model->outputs[dense->start_output + 1]);
 }
 
 void init_model(struct model *model) {
