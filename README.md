@@ -1,2 +1,2 @@
-# lstm_dpu_app
+# LSTM-DPU
 Repository for FYP
