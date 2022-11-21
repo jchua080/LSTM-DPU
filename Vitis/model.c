@@ -536,7 +536,7 @@ void evaluate(FILE *output_ptr, uint32_t *dpu, struct model *model, char *data_p
 				if (i == quantize) {
 					label_predicted(model, label, predicted, &correct, !i);
 					printf("Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%% --- Time left: 0 s\n", batch_time, total, (double)total / time, 100.0 * correct / total);
-					fprintf(output_ptr, "Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%%\n --- Time left: 0 s", batch_time, total, (double)total / time, 100.0 * correct / total);
+					fprintf(output_ptr, "Batch time: %g s (%d done) --- Performance: %g inferences/s --- Accuracy: %g%% --- Time left: 0 s\n", batch_time, total, (double)total / time, 100.0 * correct / total);
 				}
 				else {
 					printf("Representative done: %d/%d --- Time left: 0 s\n", total, representative);
